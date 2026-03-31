@@ -1,0 +1,89 @@
+name: Test lab lifecycle
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEBIAN_FRONTEND: "noninteractive"
+
+jobs:
+  nfq:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            python3 \
+            iproute2 \
+            ethtool \
+            iptables \
+            procps
+
+      - name: Bring NFQ lab up
+        run: ./run.py nfq up
+
+      - name: Show NFQ lab status
+        run: ./run.py nfq status
+
+      - name: Bring NFQ lab down
+        if: always()
+        run: ./run.py nfq down
+
+  afp:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            python3 \
+            iproute2 \
+            ethtool \
+            iptables \
+            procps \
+            podman \
+            uidmap \
+            slirp4netns \
+            fuse-overlayfs
+
+      - name: Configure containers
+        run: |
+          cat > /etc/containers/containers.conf <<'EOF'
+          [containers]
+          cgroups = "disabled"
+          events_logger = "file"
+          EOF
+
+      - name: Bring AFP lab up
+        run: ./run.py afp up
+
+      - name: Show AFP lab status
+        run: ./run.py afp status
+
+      - run: podman build -t server .
+      - run: podman run --rm --network ns:/var/run/netns/server server ip a
+
+      - name: Bring AFP lab down
+        if: always()
+        run: ./run.py afp down
